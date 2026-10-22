@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Image & GIF Trimmer</title>
+<style>
+:root{--bg:#f6f4ef;--card:#fff;--ink:#1c1b19;--mut:#6d6a63;--line:#dcd8cf;--acc:#c2410c;--accink:#fff;--chk1:#e8e5de;--chk2:#f6f4ef;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171613;--card:#211f1c;--ink:#f1eee7;--mut:#a09b90;--line:#3a3732;--acc:#fb923c;--accink:#1a1209;--chk1:#2c2a26;--chk2:#211f1c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#171613;--card:#211f1c;--ink:#f1eee7;--mut:#a09b90;--line:#3a3732;--acc:#fb923c;--accink:#1a1209;--chk1:#2c2a26;--chk2:#211f1c;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Inter",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:28px 18px 40px}
+h1{font:600 26px/1.2 "Fraunces",Georgia,serif;margin:0 0 4px;letter-spacing:-.01em}
+p.sub{margin:0 0 22px;color:var(--mut)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+#drop{border:2px dashed var(--line);border-radius:12px;padding:34px 14px;text-align:center;color:var(--mut);cursor:pointer;transition:.15s}
+#drop.on,#drop:hover{border-color:var(--acc);color:var(--ink)}
+#drop b{color:var(--ink)}
+label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:14px 0 5px}
+.row{display:flex;gap:10px;align-items:center}
+input[type=number],select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+input[type=range]{width:100%;accent-color:var(--acc)}
+button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:11px 16px;background:var(--acc);color:var(--accink);cursor:pointer;width:100%;margin-top:18px}
+button:disabled{opacity:.4;cursor:not-allowed}
+.stage{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px}
+#cv{width:200px;height:270px;border:1px solid var(--line);cursor:grab;touch-action:none;background:repeating-conic-gradient(var(--chk1) 0 25%,var(--chk2) 0 50%) 0 0/16px 16px;image-rendering:auto}
+#cv.big{width:400px;height:540px;max-width:100%;height:auto;aspect-ratio:200/270}
+#cv:active{cursor:grabbing}
+.hint{font-size:13px;color:var(--mut);margin-top:10px;text-align:center}
+#msg{font-size:13px;color:var(--mut);margin-top:10px;min-height:20px}
+.seg{display:flex;gap:6px}.seg button{margin:0;background:var(--bg);color:var(--ink);border:1px solid var(--line);padding:8px}
+.seg button.on{background:var(--acc);color:var(--accink);border-color:var(--acc)}
+</style>
+</head>
+<body>
+<main>
+<h1>Image &amp; GIF Trimmer</h1>
+<p class="sub">Drop in any image or animated GIF and trim it to an exact size (default 200 × 270 px). Everything happens in your browser.</p>
+<div class="grid">
+ <div class="card">
+  <div id="drop"><b>Choose a file</b> or drop it here<br><small>PNG, JPG, WebP, GIF…</small></div>
+  <input id="file" type="file" accept="image/*" hidden>
+  <label>Output size (px)</label>
+  <div class="row"><input id="w" type="number" min="1" max="4000" value="200"><span>×</span><input id="h" type="number" min="1" max="4000" value="270"></div>
+  <label>Mode</label>
+  <div class="seg"><button id="mFill" class="on">Fill &amp; crop</button><button id="mFit">Fit (no crop)</button></div>
+  <label>Zoom <span id="zv">100%</span></label>
+  <input id="zoom" type="range" min="100" max="400" value="100">
+  <label>Static output format</label>
+  <select id="fmt"><option value="png">PNG</option><option value="jpg">JPG</option><option value="webp">WebP</option></select>
+  <button id="save" disabled>Download</button>
+  <div id="msg"></div>
+ </div>
+ <div class="card stage">
+  <canvas id="cv" width="200" height="270"></canvas>
+  <div class="hint">Drag the preview to choose what stays in frame.</div>
+ </div>
+</div>
+</main>
+<script>
+function lzw(px){
+  const out=[];let cur=0,bits=0;
+  const put=(c,n)=>{cur|=c<<bits;bits+=n;while(bits>=8){out.push(cur&255);cur>>=8;bits-=8;}};
+  let size=9,next=258,dict=new Map();
+  put(256,size);
+  let p=px[0];
+  for(let i=1;i<px.length;i++){
+    const k=px[i],key=p*256+k,c=dict.get(key);
+    if(c!==undefined){p=c;continue;}
+    put(p,size);
+    dict.set(key,next++);
+    if(next>(1<<size)&&size<12)size++;
+    if(next>=4096){put(256,size);dict.clear();next=258;size=9;}
+    p=k;
+  }
+  put(p,size);put(257,size);
+  if(bits>0)out.push(cur&255);
+  return out;
+}
+function encodeGIF(frames,W,H){
+  const hist=new Map();let trans=false;
+  for(const f of frames){const d=f.data;for(let i=0;i<d.length;i+=4){
+    if(d[i+3]<128){trans=true;continue;}
+    const k=(d[i]>>3)<<10|(d[i+1]>>3)<<5|d[i+2]>>3;
+    let e=hist.get(k);if(!e){e=[0,0,0,0];hist.set(k,e);}
+    e[0]++;e[1]+=d[i];e[2]+=d[i+1];e[3]+=d[i+2];}}
+  const off=trans?1:0;
+  const top=[...hist.entries()].sort((a,b)=>b[1][0]-a[1][0]).slice(0,256-off);
+  const pal=[],cache=new Map();
+  top.forEach(([k,e],i)=>{pal.push([Math.round(e[1]/e[0]),Math.round(e[2]/e[0]),Math.round(e[3]/e[0])]);cache.set(k,i+off);});
+  const lookup=(r,g,b)=>{
+    const k=(r>>3)<<10|(g>>3)<<5|b>>3;let v=cache.get(k);
+    if(v!==undefined)return v;
+    let best=0,bd=1e9;
+    for(let j=0;j<pal.length;j++){const p=pal[j],dr=p[0]-r,dg=p[1]-g,db=p[2]-b,dd=dr*dr+dg*dg+db*db;if(dd<bd){bd=dd;best=j;}}
+    v=best+off;cache.set(k,v);return v;};
+  const o=[];const w16=n=>o.push(n&255,n>>8&255);
+  "GIF89a".split("").forEach(c=>o.push(c.charCodeAt(0)));
+  w16(W);w16(H);o.push(0xF7,0,0);
+  for(let i=0;i<256;i++){const c=i-off>=0&&i-off<pal.length?pal[i-off]:[0,0,0];o.push(c[0],c[1],c[2]);}
+  o.push(0x21,0xFF,11);"NETSCAPE2.0".split("").forEach(c=>o.push(c.charCodeAt(0)));o.push(3,1,0,0,0);
+  for(const f of frames){
+    const d=f.data,px=new Uint8Array(W*H);
+    for(let i=0,j=0;i<d.length;i+=4,j++)px[j]=d[i+3]<128?0:lookup(d[i],d[i+1],d[i+2]);
+    o.push(0x21,0xF9,4,(2<<2)|(trans?1:0));w16(Math.max(2,Math.round(f.delay/10)));o.push(0,0);
+    o.push(0x2C);w16(0);w16(0);w16(W);w16(H);o.push(0,8);
+    const z=lzw(px);
+    for(let i=0;i<z.length;i+=255){const n=Math.min(255,z.length-i);o.push(n);for(let j=0;j<n;j++)o.push(z[i+j]);}
+    o.push(0);
+  }
+  o.push(0x3B);
+  return new Uint8Array(o);
+}
+
+
+const $=id=>document.getElementById(id);
+const cv=$("cv"),ctx=cv.getContext("2d");
+let frames=[],name="image",animated=false,mode="fill",zoom=1,ox=0,oy=0,fi=0,timer=null,token=0;
+const W=()=>Math.max(1,Math.min(4000,+$("w").value||200)),H=()=>Math.max(1,Math.min(4000,+$("h").value||270));
+const msg=t=>{$("msg").textContent=t;};
+
+function layout(f){
+  const w=W(),h=H(),sw=f.bmp.width,sh=f.bmp.height;
+  const base=mode==="fill"?Math.max(w/sw,h/sh):Math.min(w/sw,h/sh);
+  const s=base*zoom,dw=sw*s,dh=sh*s;
+  const mx=Math.max(0,(dw-w)/2),my=Math.max(0,(dh-h)/2);
+  const cx=Math.max(-mx,Math.min(mx,ox)),cy=Math.max(-my,Math.min(my,oy));
+  return{x:(w-dw)/2+cx,y:(h-dh)/2+cy,dw,dh,mx,my};
+}
+function draw(c,f){
+  const L=layout(f);c.clearRect(0,0,W(),H());
+  c.imageSmoothingQuality="high";c.drawImage(f.bmp,L.x,L.y,L.dw,L.dh);
+}
+function show(){
+  if(!frames.length)return;
+  const f=frames[fi%frames.length];draw(ctx,f);
+}
+function play(){
+  clearTimeout(timer);
+  if(frames.length<2)return;
+  const step=()=>{fi=(fi+1)%frames.length;show();timer=setTimeout(step,frames[fi].delay);};
+  timer=setTimeout(step,frames[0].delay);
+}
+function sizeCanvas(){
+  cv.width=W();cv.height=H();
+  cv.style.width=Math.min(W()*(W()<260?1.6:1),320)+"px";
+  cv.style.height="auto";cv.style.aspectRatio=W()+"/"+H();
+  show();
+}
+async function load(file){
+  if(!file||!file.type.startsWith("image/"))return msg("That doesn’t look like an image file.");
+  const my=++token;clearTimeout(timer);frames=[];animated=false;ox=oy=0;
+  name=file.name.replace(/\.[^.]+$/,"")||"image";msg("Loading…");
+  try{
+    let ok=false;
+    if("ImageDecoder" in window&&/gif|webp|png/.test(file.type)){
+      try{
+        const dec=new ImageDecoder({data:await file.arrayBuffer(),type:file.type});
+        await dec.tracks.ready;const n=Math.min(dec.tracks.selectedTrack.frameCount,600);
+        if(n>1){
+          for(let i=0;i<n;i++){
+            const{image}=await dec.decode({frameIndex:i});
+            const bmp=await createImageBitmap(image);
+            frames.push({bmp,delay:Math.max(20,Math.round((image.duration||100000)/1000))});image.close();
+            if(my!==token)return;
+          }
+          animated=file.type==="image/gif";ok=true;
+        }
+      }catch(e){frames=[];}
+    }
+    if(!ok){frames=[{bmp:await createImageBitmap(file),delay:100}];animated=false;}
+  }catch(e){return msg("Couldn’t read that file.");}
+  fi=0;sizeCanvas();play();$("save").disabled=false;
+  const f=frames[0];
+  msg(frames.length>1?`${f.bmp.width}×${f.bmp.height}, ${frames.length} frames → exports as an animated GIF.`:
+    (file.type==="image/gif"?"Your browser can’t read GIF animation here, so only the first frame is used. ":"")+`${f.bmp.width}×${f.bmp.height} source.`);
+  $("fmt").disabled=frames.length>1;
+}
+// file input / drop
+$("drop").onclick=()=>$("file").click();
+$("file").onchange=e=>load(e.target.files[0]);
+["dragover","dragenter"].forEach(t=>$("drop").addEventListener(t,e=>{e.preventDefault();$("drop").classList.add("on");}));
+["dragleave","drop"].forEach(t=>$("drop").addEventListener(t,e=>{e.preventDefault();$("drop").classList.remove("on");}));
+$("drop").addEventListener("drop",e=>load(e.dataTransfer.files[0]));
+// controls
+$("w").oninput=$("h").oninput=()=>{ox=oy=0;sizeCanvas();};
+$("zoom").oninput=e=>{zoom=e.target.value/100;$("zv").textContent=e.target.value+"%";show();};
+for(const[id,m]of[["mFill","fill"],["mFit","fit"]])$(id).onclick=()=>{mode=m;ox=oy=0;$("mFill").classList.toggle("on",m==="fill");$("mFit").classList.toggle("on",m==="fit");show();};
+// drag to pan
+let drag=null;
+cv.addEventListener("pointerdown",e=>{if(!frames.length)return;const L=layout(frames[0]);drag={x:e.clientX,y:e.clientY,ox:Math.max(-L.mx,Math.min(L.mx,ox)),oy:Math.max(-L.my,Math.min(L.my,oy))};cv.setPointerCapture(e.pointerId);});
+cv.addEventListener("pointermove",e=>{if(!drag)return;const k=W()/cv.getBoundingClientRect().width;ox=drag.ox+(e.clientX-drag.x)*k;oy=drag.oy+(e.clientY-drag.y)*k;show();});
+cv.addEventListener("pointerup",()=>{drag=null;});
+// export
+async function save(filename,blob){
+  let dl=null;try{dl=await claude.use("downloads");}catch(e){}
+  if(dl){try{await dl.save({filename,data:blob});msg("Saved "+filename);}catch(e){if(e&&e.code!=="declined")msg("Couldn’t save the file.");}}
+  else{const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=filename;a.click();}
+}
+$("save").onclick=async()=>{
+  if(!frames.length)return;
+  const w=W(),h=H(),off=document.createElement("canvas");off.width=w;off.height=h;
+  const c=off.getContext("2d",{willReadFrequently:true});
+  $("save").disabled=true;
+  try{
+    if(frames.length>1&&animated){
+      msg("Encoding GIF…");await new Promise(r=>setTimeout(r,30));
+      const out=[];
+      for(const f of frames){draw(c,f);out.push({data:c.getImageData(0,0,w,h).data,delay:f.delay});}
+      const bytes=encodeGIF(out,w,h);
+      await save(`${name}-${w}x${h}.gif`,new Blob([bytes],{type:"image/gif"}));
+    }else{
+      const fmt=$("fmt").value,mime={png:"image/png",jpg:"image/jpeg",webp:"image/webp"}[fmt];
+      if(fmt==="jpg"){c.fillStyle="#fff";c.fillRect(0,0,w,h);}
+      draw(c,frames[0]);
+      const blob=await new Promise(r=>off.toBlob(r,mime,.92));
+      await save(`${name}-${w}x${h}.${fmt}`,blob);
+    }
+  }catch(e){msg("Export failed: "+(e.message||e));}
+  $("save").disabled=false;
+};
+sizeCanvas();
+</script>
+</body>
+</html>
